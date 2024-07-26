@@ -2,6 +2,7 @@ import json
 from openai import OpenAI
 import requests
 
+# Sends a Jinja2 template to Home Assistant, can be used to retrieve information about entities and states
 def send_template_request(template):
     url = "https://<your_instance>:8000/api/template"
     headers = {
@@ -37,6 +38,7 @@ if labels_list:
 else:
     print("Failed to get area list.")
 
+# Sends an intent request to home assistant, can be used to change the state of a device
 def send_ACTION_request(ACTION_data):
     url = "https://<your_instance>:8000/api/intent/handle"
     headers = {
@@ -53,6 +55,8 @@ def send_ACTION_request(ACTION_data):
         return None
 
 # Define the prompt templates for Query, Followup, Answer and Action
+# Description is what the model uses to decide on the action to take
+# prompt_template is what the model is prompted after it's decided on an action (more detailed)
 query_prompt_info = {
     "name": "QUERY",
     "description": "For querying Home Assistant for state of available devices. For example, if you need to list devices IDs, or get the temperature of a sensor. Use FOLLOWUP instead if not sure which device.",
@@ -108,6 +112,7 @@ action_prompt_info = {
 # Instantiate the LLM
 client = OpenAI(api_key='dummy', base_url='http://127.0.0.1:1234/v1/')
 
+# Create System message which includes the short description of actions, and some of the available areas and labels.
 SYSTEM_MESSAGE = f"""
 You are 'Al', a precise AI assistant that controls the devices in a house. Complete the following task as instructed.
 You have access to the following actions:
@@ -121,7 +126,8 @@ Always ask FOLLOWUP, use common sense. Don't choose an entity by default.
 Use QUERY for information and ACTION for actions.
 To take one of the actions, output only the name of the action. One word.
 """
-    
+
+# Gets a response from the AI
 def get_response(chat_history):
     response = client.chat.completions.create(
         model="local-model",
@@ -142,6 +148,7 @@ def main():
     while True:
         chat_history.append({"role": "user", "content": "FOLLOW THE SYSTEM MESSAGE OUTPUT ONLY ONE WORD, QUERY FOLLOWUP ANSWER OR ACTION"})
 
+        # If it was a QUERY then we've already gotten the query response from Home Assistant (later in this loop), don't prompt the user.
         if action_type == 'QUERY':
             user_input = result
         else:
@@ -174,8 +181,7 @@ def main():
 
         model_response = get_response(chat_history)
         print("\nModel Action: ", model_response)
-
-        if action_type == 'ACTION':
+        if action_type == 'ACTION':                    # If we're performing an action/intent, then send it to Home Assistant
             for ACTION in model_response.split('*'):
                 resp = ACTION.replace('*','')
                 print('resp', resp)
@@ -193,12 +199,13 @@ def main():
                     print(f"Invalid JSON format for ACTION data: {e}")
                 except requests.exceptions.RequestException as e:
                     print(f"Error sending ACTION request: {e}")
-        elif action_type == 'QUERY':
+        elif action_type == 'QUERY':                    # If we're making a query, then send it to Home Assistant
             result = send_template_request(model_response)
             if result:
                 print(f"Query result: {result}")
             else:
                 print("Failed to execute query: {e}")
+        # Otherwise it's either an answer or or followup question so we can just ask/tell the user and wait for their response
 
 
 if __name__ == "__main__":
